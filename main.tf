@@ -1,12 +1,10 @@
-# Terraform & Provider
-
 terraform {
   required_version = "> 1.5.0"
 
   required_providers {
-  aws = {
-    source  = "hashicorp/aws"
-    version = "~> 5.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
 }
@@ -22,86 +20,27 @@ data "aws_vpc" "default" {
 
 data "aws_subnets" "default" {
   filter {
-    name = "vpc-id"
+    name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
 }
 
-
-
-
-
-
-
-#################################
-# SSH Key generation
-## SSH key generation with Teraform
-
-# resource "tls_private_key" "ssh_key" {
-#  algorithm = "RSA"
-#  rsa_bits = 4096
-#}
-
-## Record the public key in AWS
-
-# resource "aws_key_pair" "ec2_key" {
-#  key_name   = "terraform-ec2-key"
-#  public_key = tls_private_key.ssh_key.public_key_openssh
-#}
-
-##################################
-# Security Group
-
 resource "aws_security_group" "ec2_sg" {
-  name        = "ec2-no-ingress" 
+  name        = "ec2-no-ingress"
   description = "No inbound traffic allowed"
   vpc_id      = data.aws_vpc.default.id
 
 
   tags = {
-   Name = "terraform-ec-sg"
+    Name = "terraform-ec-sg"
   }
 }
 
 resource "aws_vpc_security_group_egress_rule" "allow_all" {
-  security_group_id = aws_security_group.ec2_sg.id  
-   
-   protocol = "-1"
-   cidr_ipv4 = "0.0.0.0/0"
- }
+  security_group_id = aws_security_group.ec2_sg.id
 
-
-##################################
-# Instance EC2 #
-
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-
-  filter {
-  name = "name"
-  values = ["al2023-ami-*x86_64"]
-  }
-
-  filter {
-  name = "virtualization-type"
-  values = ["hvm"]
-  }
-
-owners = ["amazon"]
-}
-
-resource "aws_instance" "ec2" {
-  ami           = data.aws_ami.amazon_linux.id
-  instance_type = var.instance_type
-  key_name      = aws_key_pair.ec2_key.key_name
-
-  vpc_security_group_ids = [
-    aws_security_group.ec2_sg.id
-  ]
-
-  tags = {
-    Name = "terraform-ec2-demo"
-  }
+  ip_protocol  = "-1"
+  cidr_ipv4 = "0.0.0.0/0"
 }
 
 resource "aws_iam_role" "ec2_ssm_role" {
@@ -128,7 +67,7 @@ resource "aws_iam_role" "ec2_ssm_role" {
 
 resource "aws_iam_role_policy_attachment" "ssm_core" {
   role       = aws_iam_role.ec2_ssm_role.name
-  policy_arn = "aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "ec2_profile" {
@@ -154,18 +93,26 @@ resource "aws_instance" "ec2" {
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
   associate_public_ip_address = true
 
+user_data = <<-EOF
+  #!/bin/bash
+  set -eux
 
+  dnf update -y
 
-  user_data = <<-EOF
-    #!/bin/bash
-    dnf update -y
-    dnf install -y nginx
-    systemctl enable nginx
-    systemctl start nginx
-    echo "Hello from EC2 DevOps" > /usr/share/nginx/html/index.html
-  EOF
+  # SSM agent (sécurité explicite)
+  dnf install -y amazon-ssm-agent
+  systemctl enable amazon-ssm-agent
+  systemctl start amazon-ssm-agent
+
+  # nginx
+  dnf install -y nginx
+  systemctl enable nginx
+  systemctl start nginx
+
+  echo "Hello from EC2 DevOps" > /usr/share/nginx/html/index.html
+EOF
 
   tags = {
-    Name = "ec2-devops-exo"
+    Name = "ec2-devops-sample"
   }
 }
